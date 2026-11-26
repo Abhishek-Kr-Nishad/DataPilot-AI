@@ -1,0 +1,41 @@
+"""Backward-compatible re-export of domain models."""
+
+from datapilot.schemas.domain import (
+    AgentDiagnosisReport,
+    ApprovalDecision,
+    ApprovalStatus,
+    CheckSeverity,
+    ExecutionMode,
+    FailureDiagnosis,
+    LayerMetrics,
+    PipelineRunRecord,
+    PipelineStatus,
+    QualityCheckResult,
+    QualityReport,
+    RecoveryAction,
+    RecoveryRecommendation,
+    RiskLevel,
+    SQLValidationPack,
+    compute_quality_score,
+    utc_now_iso,
+)
+
+__all__ = [
+    "AgentDiagnosisReport",
+    "ApprovalDecision",
+    "ApprovalStatus",
+    "CheckSeverity",
+    "ExecutionMode",
+    "FailureDiagnosis",
+    "LayerMetrics",
+    "PipelineRunRecord",
+    "PipelineStatus",
+    "QualityCheckResult",
+    "QualityReport",
+    "RecoveryAction",
+    "RecoveryRecommendation",
+    "RiskLevel",
+    "SQLValidationPack",
+    "compute_quality_score",
+    "utc_now_iso",
+]
