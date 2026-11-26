@@ -1,0 +1,54 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: datapilot-ai-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env.example
+        required: true
+      - path: .env
+        required: false
+    environment:
+      DATAPILOT_EXECUTION_MODE: local
+      DATAPILOT_METADATA_BACKEND: postgres
+      POSTGRES_DSN: postgresql+psycopg2://${POSTGRES_USER:-datapilot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or environment}@postgres:5432/${POSTGRES_DB:-datapilot}
+      DATAPILOT_CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: datapilot-ai-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: datapilot-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-datapilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or environment}
+      POSTGRES_DB: ${POSTGRES_DB:-datapilot}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-datapilot} -d $${POSTGRES_DB:-datapilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
