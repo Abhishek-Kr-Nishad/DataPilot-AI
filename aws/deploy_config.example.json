@@ -1,0 +1,29 @@
+{
+  "deployment_target": "aws",
+  "region": "us-east-1",
+  "s3": {
+    "bucket_env_var": "AWS_S3_BUCKET",
+    "prefix": "datapilot-ai",
+    "layers": {
+      "raw": "raw/",
+      "bronze": "bronze/",
+      "silver": "silver/",
+      "quarantine": "quarantine/",
+      "gold": "gold/",
+      "reports": "reports/",
+      "scripts": "scripts/"
+    }
+  },
+  "glue": {
+    "job_name": "datapilot-ecommerce-etl",
+    "glue_version": "4.0",
+    "worker_type": "G.1X",
+    "number_of_workers": 2,
+    "script_s3_key": "scripts/glue_etl_job.py",
+    "database": "datapilot_ecommerce_db"
+  },
+  "athena": {
+    "workgroup": "primary",
+    "output_location_env_var": "AWS_ATHENA_OUTPUT_LOCATION"
+  }
+}
