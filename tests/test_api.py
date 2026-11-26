@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
+import pytest
 from pyspark.sql import SparkSession
 
 from datapilot.api.main import create_app
@@ -37,6 +39,8 @@ def _make_client(
     settings.local.approvals_dir = data_dir / "approvals"
     settings.local.logs_dir = tmp_path / "logs"
     settings.metadata.database_url = f"sqlite:///{(tmp_path / 'test_api.db').as_posix()}"
+    settings.api_key = None
+    settings.require_auth = False
     settings.ensure_directories()
 
     app = create_app(settings=settings, spark=spark, gemini_client=gemini_client)
@@ -282,3 +286,92 @@ def test_api_end_to_end_pipeline_and_analytics_summary(
         json={"run_id": corrupt_run_id, "mode": "mock"},
     ).json()
     assert diag["diagnosis"]["failure_category"] == "CORRUPT_OR_INVALID_RECORDS"
+
+
+def test_api_security_auth_cors_upload_limit_and_error_masking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1. Verify DATAPILOT_CORS_ORIGINS is respected when create_app(settings=None) runs
+    monkeypatch.setenv("DATAPILOT_DATA_DIR", str(tmp_path / "env_data"))
+    monkeypatch.setenv("DATAPILOT_CORS_ORIGINS", "https://analytics.example.com")
+    monkeypatch.delenv("DATAPILOT_API_KEY", raising=False)
+    monkeypatch.setenv("DATAPILOT_REQUIRE_AUTH", "false")
+    env_app = create_app()
+    with TestClient(env_app) as env_client:
+        preflight = env_client.options(
+            "/health",
+            headers={
+                "Origin": "https://analytics.example.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert preflight.status_code == 200
+        assert preflight.headers.get("access-control-allow-origin") == "https://analytics.example.com"
+
+    # 2. Verify API key auth blocks unauthenticated /api/v1/* calls while /health remains open
+    repo_root = Path(__file__).resolve().parents[1]
+    auth_settings = load_settings(project_root=repo_root)
+    auth_settings.local.data_dir = tmp_path / "auth_data"
+    auth_settings.local.raw_dir = auth_settings.local.data_dir / "raw"
+    auth_settings.local.bronze_dir = auth_settings.local.data_dir / "bronze"
+    auth_settings.local.silver_dir = auth_settings.local.data_dir / "silver"
+    auth_settings.local.quarantine_dir = auth_settings.local.data_dir / "silver" / "quarantine"
+    auth_settings.local.gold_dir = auth_settings.local.data_dir / "gold"
+    auth_settings.local.reports_dir = auth_settings.local.data_dir / "reports"
+    auth_settings.local.approvals_dir = auth_settings.local.data_dir / "approvals"
+    auth_settings.local.logs_dir = tmp_path / "auth_logs"
+    auth_settings.metadata.database_url = f"sqlite:///{(tmp_path / 'auth.db').as_posix()}"
+    auth_settings.api_key = SecretStr("unit-test-secret-key")
+    auth_settings.max_upload_mb = 1
+    auth_settings.debug = False
+    auth_settings.ensure_directories()
+
+    auth_app = create_app(settings=auth_settings)
+
+    @auth_app.get("/api/v1/test-boom")
+    def _boom():
+        raise RuntimeError("sensitive postgresql://user:pw@db:5432/secret")
+
+    auth_client = TestClient(auth_app, raise_server_exceptions=False)
+    assert auth_client.get("/health").json()["auth_enabled"] is True
+    assert auth_client.get("/api/v1/pipeline/runs").status_code == 401
+    assert (
+        auth_client.get("/api/v1/pipeline/runs", headers={"X-API-Key": "wrong"}).status_code == 401
+    )
+    assert (
+        auth_client.get(
+            "/api/v1/pipeline/runs", headers={"X-API-Key": "unit-test-secret-key"}
+        ).status_code
+        == 200
+    )
+    assert (
+        auth_client.get(
+            "/api/v1/pipeline/runs",
+            headers={"Authorization": "Bearer unit-test-secret-key"},
+        ).status_code
+        == 200
+    )
+
+    # 3. Verify HTTP 500 error masking hides internal exception details
+    boom_resp = auth_client.get(
+        "/api/v1/test-boom", headers={"X-API-Key": "unit-test-secret-key"}
+    )
+    assert boom_resp.status_code == 500
+    assert "Internal server error" in boom_resp.json()["detail"]
+    assert "secret" not in boom_resp.text
+    assert "RuntimeError" not in boom_resp.text
+
+    # 4. Verify bounded streaming CSV upload returns 413 when exceeding max_upload_mb
+    oversized = b"order_id,unit_price\n" + (b"ORD-1,10.00\n" * 100_000)
+    too_big = auth_client.post(
+        "/api/v1/pipeline/upload",
+        headers={"X-API-Key": "unit-test-secret-key"},
+        files={"file": ("big.csv", oversized, "text/csv")},
+    )
+    assert too_big.status_code == 413
+
+    # 5. Verify fail-closed 503 when require_auth=True without api_key
+    auth_settings.api_key = None
+    auth_settings.require_auth = True
+    fail_closed_client = TestClient(create_app(settings=auth_settings))
+    assert fail_closed_client.get("/api/v1/pipeline/runs").status_code == 503

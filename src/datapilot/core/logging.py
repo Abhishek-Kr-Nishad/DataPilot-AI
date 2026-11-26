@@ -12,9 +12,19 @@ _SECRET_PATTERNS = [
     re.compile(r"(AIza[0-9A-Za-z\-_]{20,})"),
     re.compile(r"(aws_secret_access_key\s*[:=]\s*)([^\s,;]+)", re.IGNORECASE),
     re.compile(r"(AWS_SECRET_ACCESS_KEY\s*[:=]\s*)([^\s,;]+)", re.IGNORECASE),
+    re.compile(r"(AWS_SESSION_TOKEN\s*[:=]\s*)([^\s,;]+)", re.IGNORECASE),
     re.compile(r"(GEMINI_API_KEY\s*[:=]\s*)([^\s,;]+)", re.IGNORECASE),
+    re.compile(r"(DATAPILOT_API_KEY\s*[:=]\s*)([^\s,;]+)", re.IGNORECASE),
+    re.compile(r"((?:X-API-Key|Authorization)\s*[:=]\s*(?:Bearer\s+)?)([^\s,;]+)", re.IGNORECASE),
     re.compile(r"(postgresql(?:\+psycopg2)?://[^:]+:)([^@]+)(@)", re.IGNORECASE),
 ]
+
+
+class _RedactingFormatter(logging.Formatter):
+    """Formatter that scrubs secrets from messages and formatted exception tracebacks."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_secrets(super().format(record))
 
 
 class SecretRedactionFilter(logging.Filter):
@@ -26,19 +36,24 @@ class SecretRedactionFilter(logging.Filter):
         if redacted != msg:
             record.msg = redacted
             record.args = ()
+        if record.exc_text:
+            record.exc_text = redact_secrets(record.exc_text)
         return True
 
 
 def redact_secrets(text: str) -> str:
-    """Redact AWS keys, Gemini API keys, and DB passwords from log text."""
+    """Redact AWS keys, session tokens, API keys, and DB passwords from log text."""
     result = text
     result = _SECRET_PATTERNS[0].sub("[REDACTED_AWS_KEY]", result)
     result = _SECRET_PATTERNS[1].sub("[REDACTED_AWS_KEY]", result)
     result = _SECRET_PATTERNS[2].sub("[REDACTED_GEMINI_KEY]", result)
     result = _SECRET_PATTERNS[3].sub(r"\1[REDACTED]", result)
     result = _SECRET_PATTERNS[4].sub(r"\1[REDACTED]", result)
-    result = _SECRET_PATTERNS[5].sub(r"\1[REDACTED_GEMINI_KEY]", result)
-    result = _SECRET_PATTERNS[6].sub(r"\1[REDACTED]\3", result)
+    result = _SECRET_PATTERNS[5].sub(r"\1[REDACTED_SESSION_TOKEN]", result)
+    result = _SECRET_PATTERNS[6].sub(r"\1[REDACTED_GEMINI_KEY]", result)
+    result = _SECRET_PATTERNS[7].sub(r"\1[REDACTED_API_KEY]", result)
+    result = _SECRET_PATTERNS[8].sub(r"\1[REDACTED]", result)
+    result = _SECRET_PATTERNS[9].sub(r"\1[REDACTED]\3", result)
     return result
 
 
@@ -52,7 +67,7 @@ def get_logger(
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     logger.setLevel(numeric_level)
 
-    formatter = logging.Formatter(
+    formatter = _RedactingFormatter(
         fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )

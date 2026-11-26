@@ -1,12 +1,24 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const ENV_API_KEY = (import.meta.env.VITE_API_KEY || "").trim();
+
+function getApiKey() {
+  if (ENV_API_KEY) return ENV_API_KEY;
+  try {
+    return (window?.localStorage?.getItem("datapilot_api_key") || "").trim();
+  } catch {
+    return "";
+  }
+}
 
 async function request(path, options = {}) {
+  const apiKey = getApiKey();
   let res;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
         ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(apiKey ? { "X-API-Key": apiKey } : {}),
         ...(options.headers || {})
       }
     });

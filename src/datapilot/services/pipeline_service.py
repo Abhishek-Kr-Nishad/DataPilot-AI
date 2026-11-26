@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+import uuid
 
 import pandas as pd
 from pyspark.sql import SparkSession
@@ -129,8 +130,21 @@ class PipelineService:
         raw_name = Path(filename or "uploaded.csv").name
         if not raw_name.lower().endswith(".csv"):
             raise ValueError("Only .csv files are supported for raw ingestion.")
+        if not content:
+            raise ValueError("Uploaded CSV file is empty.")
+        if len(content) > self.settings.max_upload_bytes:
+            raise ValueError(
+                f"Uploaded CSV exceeds maximum allowed size ({self.settings.max_upload_mb} MB)."
+            )
+        try:
+            content[:4096].decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Uploaded CSV must be valid UTF-8 encoded text.") from exc
+
         safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", raw_name)
-        target_csv = self.settings.local.raw_dir / safe_name
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        unique_name = f"{stamp}_{uuid.uuid4().hex[:8]}_{safe_name}"
+        target_csv = self.settings.local.raw_dir / "uploads" / unique_name
         target_csv.parent.mkdir(parents=True, exist_ok=True)
         target_csv.write_bytes(content)
 

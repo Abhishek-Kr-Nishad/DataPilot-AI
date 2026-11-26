@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 ExecutionMode = Literal["local", "aws"]
 MetadataBackend = Literal["sqlalchemy", "json", "postgres"]
@@ -117,6 +117,21 @@ class AppSettings(BaseModel):
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
     )
+    api_key: SecretStr | None = Field(default=None, exclude=True, repr=False)
+    require_auth: bool = False
+    max_upload_mb: int = Field(default=25, ge=1, le=500)
+    debug: bool = False
+
+    @property
+    def auth_enabled(self) -> bool:
+        """Return True when API key authentication is enforced."""
+        has_key = self.api_key is not None and bool(self.api_key.get_secret_value().strip())
+        return self.require_auth or has_key
+
+    @property
+    def max_upload_bytes(self) -> int:
+        """Maximum allowed CSV upload payload size in bytes."""
+        return self.max_upload_mb * 1024 * 1024
 
     def ensure_directories(self) -> None:
         """Create required local runtime directories if they do not exist."""
@@ -161,6 +176,18 @@ def _parse_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:
         raise ConfigurationError(f"Environment variable {name} must be an integer, got {raw!r}") from exc
+
+
+def _parse_bool(name: str, default: bool) -> bool:
+    raw = _clean_env(os.getenv(name))
+    if raw is None:
+        return default
+    normalized = raw.lower()
+    if normalized in ("1", "true", "yes", "on"):
+        return True
+    if normalized in ("0", "false", "no", "off"):
+        return False
+    raise ConfigurationError(f"Environment variable {name} must be a boolean, got {raw!r}")
 
 
 def _detect_windows_hadoop_home(explicit: str | None) -> str | None:
@@ -290,6 +317,15 @@ def load_settings(
     cors_raw = _clean_env(os.getenv("DATAPILOT_CORS_ORIGINS")) or "http://localhost:3000,http://localhost:5173"
     cors_origins = [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
 
+    raw_api_key = _clean_env(os.getenv("DATAPILOT_API_KEY"))
+    require_auth = _parse_bool("DATAPILOT_REQUIRE_AUTH", False)
+    max_upload_mb = _parse_int("DATAPILOT_MAX_UPLOAD_MB", 25)
+    if max_upload_mb < 1 or max_upload_mb > 500:
+        raise ConfigurationError(
+            f"DATAPILOT_MAX_UPLOAD_MB must be between 1 and 500, got {max_upload_mb}"
+        )
+    debug_mode = _parse_bool("DATAPILOT_DEBUG", False)
+
     return AppSettings(
         requested_mode=requested_mode,
         effective_mode=effective_mode,
@@ -306,4 +342,8 @@ def load_settings(
         has_gemini_key=bool(_clean_env(os.getenv("GEMINI_API_KEY"))),
         agent_mode=agent_mode,
         cors_origins=cors_origins,
+        api_key=SecretStr(raw_api_key) if raw_api_key else None,
+        require_auth=require_auth,
+        max_upload_mb=max_upload_mb,
+        debug=debug_mode,
     )

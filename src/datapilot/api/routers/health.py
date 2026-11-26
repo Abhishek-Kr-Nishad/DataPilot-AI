@@ -29,5 +29,6 @@ def health_check(container: ServiceContainer = Depends(get_container)) -> Health
         fallback_reason=cfg.fallback_reason,
         database_backend=db_backend,
         gemini_configured=cfg.has_gemini_key,
+        auth_enabled=cfg.auth_enabled,
         aws=cfg.aws.sanitized_summary(),
     )

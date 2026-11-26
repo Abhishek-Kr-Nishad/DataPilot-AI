@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 
-from datapilot.dependencies.container import PipelineService, get_pipeline_service
+from datapilot.dependencies.container import (
+    PipelineService,
+    ServiceContainer,
+    get_container,
+    get_pipeline_service,
+)
 from datapilot.schemas.api import (
     LayerPreviewResponse,
     PipelineRunRequest,
@@ -39,13 +46,16 @@ def run_synthetic_pipeline(
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineRunResponse:
     """Generate a reproducible synthetic batch and run the Medallion PySpark ETL pipeline."""
-    return service.run_synthetic_batch(
-        scenario=payload.scenario,
-        num_rows=payload.num_rows,
-        seed=payload.seed,
-        fail_on_quality_error=payload.fail_on_quality_error,
-        sync_to_aws=payload.sync_to_aws,
-    )
+    try:
+        return service.run_synthetic_batch(
+            scenario=payload.scenario,
+            num_rows=payload.num_rows,
+            seed=payload.seed,
+            fail_on_quality_error=payload.fail_on_quality_error,
+            sync_to_aws=payload.sync_to_aws,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post(
@@ -57,14 +67,44 @@ async def upload_csv_and_run(
     file: UploadFile = File(...),
     fail_on_quality_error: bool = Form(True),
     sync_to_aws: bool = Form(False),
+    container: ServiceContainer = Depends(get_container),
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineRunResponse:
     """Upload a raw CSV file and process it through Bronze -> Silver -> Quality -> Gold."""
-    content = await file.read()
+    raw_name = Path(file.filename or "uploaded.csv").name
+    if not raw_name.lower().endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .csv files are supported for raw ingestion.",
+        )
+
+    max_bytes = container.settings.max_upload_bytes
+    chunks = bytearray()
+    chunk_size = 1024 * 1024
     try:
-        return service.run_uploaded_csv(
-            filename=file.filename or "uploaded.csv",
-            content=content,
+        while chunk := await file.read(chunk_size):
+            chunks.extend(chunk)
+            if len(chunks) > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Uploaded CSV exceeds maximum allowed size ({container.settings.max_upload_mb} MB)."
+                    ),
+                )
+    finally:
+        await file.close()
+
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded CSV file is empty.",
+        )
+
+    try:
+        return await run_in_threadpool(
+            service.run_uploaded_csv,
+            filename=raw_name,
+            content=bytes(chunks),
             fail_on_quality_error=fail_on_quality_error,
             sync_to_aws=sync_to_aws,
         )

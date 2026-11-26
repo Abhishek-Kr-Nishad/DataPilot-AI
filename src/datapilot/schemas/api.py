@@ -26,6 +26,7 @@ class HealthResponse(BaseModel):
     fallback_reason: str | None = None
     database_backend: str
     gemini_configured: bool
+    auth_enabled: bool = False
     aws: dict[str, object]
 
 

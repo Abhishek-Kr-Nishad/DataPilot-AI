@@ -38,12 +38,21 @@ export function AnalyticsPage({ selectedRunId, refreshToken }) {
 
   if (loading) return <LoadingPanel message="Loading Gold layer analytics..." />;
 
-  if (!summary?.has_data) {
+  if (!summary?.has_data && !error) {
     return (
       <EmptyState
         title="No Gold Analytics Available"
         description="Execute a clean pipeline run that passes the data quality gate to materialize Gold daily revenue, category performance, regional sales, and customer LTV tables."
       />
+    );
+  }
+
+  if (error && !summary?.has_data) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold text-white">Gold Layer Analytics</h2>
+        <ErrorBanner error={error} onRetry={load} />
+      </div>
     );
   }
 

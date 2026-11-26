@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import SecretStr
 import pytest
 
 from datapilot.core.config import ConfigurationError, load_settings
-from datapilot.core.logging import redact_secrets
+from datapilot.core.logging import get_logger, redact_secrets
 from datapilot.data_generator import EXPECTED_RAW_COLUMNS, generate_ecommerce_dataset
 from datapilot.database.session import DatabaseManager
 from datapilot.metadata.store import LocalMetadataStore, SQLAlchemyMetadataStore
@@ -51,19 +52,54 @@ def test_aws_mode_falls_back_truthfully_when_unconfigured(
         load_settings(project_root=tmp_path, strict_aws=True)
 
 
-def test_secret_redaction_covers_aws_gemini_and_postgres() -> None:
+def test_secret_redaction_covers_aws_gemini_and_postgres(tmp_path: Path) -> None:
     sample = (
         "Leak AKIAIOSFODNN7EXAMPLE aws_secret_access_key=supersecret123 "
+        "AWS_SESSION_TOKEN=sessiontok999 "
         "GEMINI_API_KEY=AIzaSyDummySecretKey1234567890 "
+        "DATAPILOT_API_KEY=dp_key_abc123 "
+        "Authorization: Bearer topsecretbearer "
         "postgresql://admin:dbpass123@localhost:5432/datapilot"
     )
     cleaned = redact_secrets(sample)
     assert "AKIAIOSFODNN7EXAMPLE" not in cleaned
     assert "supersecret123" not in cleaned
+    assert "sessiontok999" not in cleaned
     assert "AIzaSyDummySecretKey1234567890" not in cleaned
+    assert "dp_key_abc123" not in cleaned
+    assert "topsecretbearer" not in cleaned
     assert "dbpass123" not in cleaned
     assert "[REDACTED_AWS_KEY]" in cleaned
     assert "[REDACTED_GEMINI_KEY]" in cleaned
+    assert "[REDACTED_SESSION_TOKEN]" in cleaned
+    assert "[REDACTED_API_KEY]" in cleaned
+
+    log_file = tmp_path / "logs" / "redact_test.log"
+    test_logger = get_logger("datapilot.test.redact", log_file=log_file)
+    try:
+        raise RuntimeError("DB failure postgresql://user:leakpass@db:5432/prod")
+    except RuntimeError:
+        test_logger.exception("Failure connecting with AWS_SESSION_TOKEN=tokleak123")
+    log_text = log_file.read_text(encoding="utf-8")
+    assert "leakpass" not in log_text
+    assert "tokleak123" not in log_text
+
+
+def test_security_settings_hide_api_key_and_validate_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATAPILOT_API_KEY", "secret-token-xyz")
+    monkeypatch.setenv("DATAPILOT_MAX_UPLOAD_MB", "10")
+    cfg = load_settings(project_root=tmp_path)
+    assert cfg.auth_enabled is True
+    assert cfg.max_upload_bytes == 10 * 1024 * 1024
+    assert "secret-token-xyz" not in repr(cfg)
+    assert "api_key" not in cfg.model_dump()
+    assert isinstance(cfg.api_key, SecretStr)
+
+    monkeypatch.setenv("DATAPILOT_MAX_UPLOAD_MB", "9999")
+    with pytest.raises(ConfigurationError):
+        load_settings(project_root=tmp_path)
 
 
 def test_data_generator_is_reproducible_and_supports_scenarios(tmp_path: Path) -> None:

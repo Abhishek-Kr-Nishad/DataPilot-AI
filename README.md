@@ -117,6 +117,8 @@ Copy `.env.example` to `.env` and configure overrides without ever committing `.
 | `POSTGRES_DSN` / `DATABASE_URL` | `""` | Optional PostgreSQL SQLAlchemy connection string |
 | `POSTGRES_USER` / `POSTGRES_DB` | `datapilot` | PostgreSQL container user & database name for Docker Compose |
 | `POSTGRES_PASSWORD` | `""` | Required in `.env` or shell environment before running `docker compose up` |
+| `DATAPILOT_API_KEY` / `DATAPILOT_REQUIRE_AUTH` | `""` / `false` | Optional `X-API-Key` / `Bearer` token protecting `/api/v1/*` routes |
+| `DATAPILOT_MAX_UPLOAD_MB` | `25` | Maximum streaming multipart CSV upload size in MB (`HTTP 413` above limit) |
 | `GEMINI_API_KEY` | `""` | Optional Google Gemini API key (`mock` mode works without it) |
 | `DATAPILOT_AGENT_MODE` | `auto` | `auto`, `mock`, or `gemini` |
 | `AWS_S3_BUCKET` / `AWS_REGION` | `""` / `us-east-1` | Target S3 bucket and region for AWS cloud sync |
@@ -218,14 +220,16 @@ Local execution never claims AWS deployment (`effective_mode="local"`, `aws_sync
 - **Completed**:
   - PySpark Medallion pipeline (Bronze, Silver, Quarantine, 4 Gold analytical tables)
   - Deterministic data quality engine & quality score calculation
-  - Modular FastAPI REST backend (`/api/v1/*`) + SQLAlchemy ORM (SQLite/PostgreSQL)
-  - Google Gemini tool-calling diagnostic agent (`mock` + `gemini` modes) with human-in-the-loop approval gate
+  - Modular FastAPI REST backend (`/api/v1/*`) with optional `X-API-Key` / `Bearer` auth, upload size limits, redacted error handling, env-driven CORS, & SQLAlchemy ORM
+  - Google Gemini diagnostic agent (`mock` offline mode + mocked Gemini tests) with human-in-the-loop approval gate
   - React + Vite + Tailwind CSS + Recharts 6-page analytics & monitoring dashboard
-  - AWS S3 `boto3` storage backend, AWS Glue 4.0 ETL script, Amazon Athena DDLs, and Docker Compose stack
-- **Upcoming**:
-  - Live AWS cloud integration tests against dedicated sandbox AWS S3/Glue/Athena account
+  - GitHub Actions CI workflow (`.github/workflows/ci.yml`) running Ruff, compilation, pytest suites, and Vite build
+  - AWS S3 `boto3` storage backend, AWS Glue ETL script, Amazon Athena DDLs, and Docker Compose stack
+- **Pending Live Cloud & Runtime Verification**:
+  - Live AWS cloud validation (S3/Glue 4.0 vs Spark 3.3 compatibility/Athena execution) against an AWS account
+  - Live Google Gemini API key verification (`GEMINI_API_KEY` currently unset; local tests use deterministic mock/fake client)
+  - PostgreSQL server & `docker compose up` runtime container verification (tested locally with SQLite; Compose config validated statically)
   - Streaming ingestion support via Kafka / Spark Structured Streaming into Bronze
-  - Automated CI/CD GitHub Actions workflow running unit, PySpark, and frontend build checks
 
 ---
 

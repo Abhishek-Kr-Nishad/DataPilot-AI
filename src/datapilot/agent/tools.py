@@ -608,7 +608,7 @@ class DiagnosticToolbox:
                             "orders are clean, re-run with --allow-quality-warnings after raising/documenting waiver."
                         ),
                         command_or_step=(
-                            f"python scripts/run_local_pipeline.py --input-csv <source_csv> --allow-quality-warnings"
+                            "python scripts/run_local_pipeline.py --input-csv <source_csv> --allow-quality-warnings"
                         ),
                         risk_level="HIGH",
                         destructive=False,
