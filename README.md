@@ -97,7 +97,7 @@ DataPilot AI/
 ### 1. Backend Setup (Python 3.11 `.venv`)
 ```powershell
 # On Windows, ensure Python 3.11 is used to create .venv
-C:\Users\HP\AppData\Local\Programs\Python\Python311\python.exe -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python --version   # Must print Python 3.11.x
 pip install -r requirements.txt
@@ -115,6 +115,8 @@ Copy `.env.example` to `.env` and configure overrides without ever committing `.
 | `DATAPILOT_EXECUTION_MODE` | `local` | `local` (filesystem + SQLite/Postgres) or `aws` |
 | `DATAPILOT_METADATA_BACKEND` | `sqlalchemy` | `sqlalchemy` (SQLite/Postgres), `postgres`, or `json` |
 | `POSTGRES_DSN` / `DATABASE_URL` | `""` | Optional PostgreSQL SQLAlchemy connection string |
+| `POSTGRES_USER` / `POSTGRES_DB` | `datapilot` | PostgreSQL container user & database name for Docker Compose |
+| `POSTGRES_PASSWORD` | `""` | Required in `.env` or shell environment before running `docker compose up` |
 | `GEMINI_API_KEY` | `""` | Optional Google Gemini API key (`mock` mode works without it) |
 | `DATAPILOT_AGENT_MODE` | `auto` | `auto`, `mock`, or `gemini` |
 | `AWS_S3_BUCKET` / `AWS_REGION` | `""` / `us-east-1` | Target S3 bucket and region for AWS cloud sync |
@@ -229,8 +231,10 @@ Local execution never claims AWS deployment (`effective_mode="local"`, `aws_sync
 
 ## Containerization (Docker Compose)
 ```bash
+cp .env.example .env
+# Set POSTGRES_PASSWORD=<your-local-dev-password> inside .env before starting containers
 docker compose up --build
 ```
 - Frontend: `http://localhost:3000`
 - Backend API & Swagger: `http://localhost:8000/docs`
-- PostgreSQL Metadata DB: `localhost:5432`
+- PostgreSQL Metadata DB: `127.0.0.1:5432`

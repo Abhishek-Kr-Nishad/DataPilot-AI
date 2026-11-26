@@ -7,11 +7,14 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env.example
+      - path: .env.example
+        required: true
+      - path: .env
+        required: false
     environment:
       DATAPILOT_EXECUTION_MODE: local
       DATAPILOT_METADATA_BACKEND: postgres
-      POSTGRES_DSN: postgresql+psycopg2://datapilot:datapilot@postgres:5432/datapilot
+      POSTGRES_DSN: postgresql+psycopg2://${POSTGRES_USER:-datapilot}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or environment}@postgres:5432/${POSTGRES_DB:-datapilot}
       DATAPILOT_CORS_ORIGINS: http://localhost:3000,http://localhost:5173
     volumes:
       - ./data:/app/data
@@ -34,13 +37,18 @@ services:
     image: postgres:16-alpine
     container_name: datapilot-postgres
     environment:
-      POSTGRES_USER: datapilot
-      POSTGRES_PASSWORD: datapilot
-      POSTGRES_DB: datapilot
+      POSTGRES_USER: ${POSTGRES_USER:-datapilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or environment}
+      POSTGRES_DB: ${POSTGRES_DB:-datapilot}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U datapilot"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-datapilot} -d $${POSTGRES_DB:-datapilot}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+volumes:
+  postgres_data:

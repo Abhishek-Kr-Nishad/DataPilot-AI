@@ -42,6 +42,8 @@ derby.log
 node_modules/
 frontend/node_modules/
 frontend/dist/
+.vite/
+frontend/.vite/
 
 # OS / IDE
 desktop.ini
